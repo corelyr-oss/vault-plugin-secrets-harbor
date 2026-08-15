@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-unit:
+    name: Lint & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+      - name: Unit tests
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Build
+        run: make build
+      - name: Plugin reports version
+        run: test "$(bin/plugins/vault-plugin-secrets-harbor -version)" != ""
+
+  integration:
+    name: Integration (${{ matrix.name }})
+    needs: lint-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest supported Vault, latest Harbor.
+          - { name: vault-1.16,  kind: vault, version: 1.16.3, harbor: v2.15.2 }
+          # Latest 1.x line.
+          - { name: vault-1.21,  kind: vault, version: 1.21.4, harbor: v2.15.2 }
+          # Current 2.0.x line, latest Harbor.
+          - { name: vault-2.0,   kind: vault, version: 2.0.4,  harbor: v2.15.2 }
+          # Current 2.0.x line, oldest Harbor supporting robot mode.
+          - { name: vault-2.0-harbor-2.12, kind: vault, version: 2.0.4, harbor: v2.12.4 }
+          # OpenBao runtime compatibility.
+          - { name: openbao-2.6, kind: bao,   version: 2.6.1,  harbor: v2.15.2 }
+    env:
+      HARBOR_URL: http://127.0.0.1:8090
+      HARBOR_REGISTRY: localhost:8090
+      INTEGRATION_DOCKER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install ${{ matrix.kind }} ${{ matrix.version }}
+        run: |
+          BIN=$(test/integration/scripts/install-vault.sh ${{ matrix.kind }} ${{ matrix.version }} "$RUNNER_TEMP/bin")
+          echo "VAULT_BIN=$BIN" >> "$GITHUB_ENV"
+          "$BIN" version
+
+      - name: Allow plain-HTTP registry for docker CLI checks
+        run: |
+          sudo mkdir -p /etc/docker
+          echo '{"insecure-registries":["localhost:8090","127.0.0.1:8090"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+          docker info --format '{{json .RegistryConfig.InsecureRegistryCIDRs}} {{json .RegistryConfig.IndexConfigs}}'
+
+      - name: Start Harbor ${{ matrix.harbor }}
+        run: HARBOR_VERSION=${{ matrix.harbor }} test/integration/harbor/up.sh
+
+      - name: Integration tests
+        run: go test -tags integration -count=1 -timeout 40m -v ./test/integration/...
+
+      - name: Harbor logs on failure
+        if: failure()
+        run: |
+          cd test/integration/.harbor/harbor && docker compose ps && docker compose logs --tail=200 core jobservice registry || true
+
+      - name: Stop Harbor
+        if: always()
+        run: test/integration/harbor/down.sh

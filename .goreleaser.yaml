@@ -1,0 +1,149 @@
+# goreleaser configuration - https://goreleaser.com
+version: 2
+
+project_name: vault-plugin-secrets-harbor
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: plugin
+    main: ./cmd/vault-plugin-secrets-harbor
+    binary: vault-plugin-secrets-harbor
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version=v{{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - docs/*
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.spdx.json"
+
+signs:
+  # Keyless (Sigstore) signature of the checksums file: verifies every artifact.
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    output: true
+    certificate: "${artifact}.pem"
+    signature: "${artifact}.sig"
+    args:
+      - sign-blob
+      - --yes
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - ${artifact}
+    env:
+      - COSIGN_EXPERIMENTAL=1
+
+dockers_v2:
+  - id: image
+    ids: [plugin]
+    dockerfile: Dockerfile
+    images:
+      - ghcr.io/corelyr-oss/vault-plugin-secrets-harbor
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: HashiCorp Vault secrets engine for Harbor robot accounts
+      org.opencontainers.image.url: https://github.com/corelyr-oss/vault-plugin-secrets-harbor
+      org.opencontainers.image.source: https://github.com/corelyr-oss/vault-plugin-secrets-harbor
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.licenses: MIT
+    annotations:
+      org.opencontainers.image.description: HashiCorp Vault secrets engine for Harbor robot accounts
+      org.opencontainers.image.source: https://github.com/corelyr-oss/vault-plugin-secrets-harbor
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: MIT
+
+docker_signs:
+  # Keyless (Sigstore) signature of the multi-platform image manifest.
+  - id: images
+    cmd: cosign
+    output: true
+    args:
+      - sign
+      - --yes
+      - ${artifact}@${digest}
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Security
+      regexp: '^.*?sec(urity)?(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore(deps):"
+      - "^ci:"
+
+release:
+  github:
+    owner: corelyr-oss
+    name: vault-plugin-secrets-harbor
+  prerelease: auto
+  draft: false
+  header: |
+    ## vault-plugin-secrets-harbor {{ .Tag }}
+
+    Vault secrets engine that issues short-lived Harbor robot accounts.
+
+    ### Install (binary)
+    ```sh
+    curl -fsSLO https://github.com/corelyr-oss/vault-plugin-secrets-harbor/releases/download/{{ .Tag }}/vault-plugin-secrets-harbor_{{ .Version }}_linux_amd64.tar.gz
+    curl -fsSLO https://github.com/corelyr-oss/vault-plugin-secrets-harbor/releases/download/{{ .Tag }}/SHA256SUMS
+    sha256sum --ignore-missing -c SHA256SUMS
+    tar -xzf vault-plugin-secrets-harbor_{{ .Version }}_linux_amd64.tar.gz vault-plugin-secrets-harbor
+    install -m 0755 vault-plugin-secrets-harbor /etc/vault/plugins/
+    vault plugin register -sha256=$(sha256sum /etc/vault/plugins/vault-plugin-secrets-harbor | cut -d' ' -f1) -version={{ .Tag }} secret vault-plugin-secrets-harbor
+    ```
+    ### Install (OCI image, containerized plugin runtime)
+    ```sh
+    vault plugin register -oci_image=ghcr.io/corelyr-oss/vault-plugin-secrets-harbor -version={{ .Tag }} -runtime=<your-runtime> secret vault-plugin-secrets-harbor
+    ```
+    ### Verify
+    ```sh
+    cosign verify-blob --certificate SHA256SUMS.pem --signature SHA256SUMS.sig \
+      --certificate-identity-regexp='^https://github.com/corelyr-oss/vault-plugin-secrets-harbor/' \
+      --certificate-oidc-issuer=https://token.actions.githubusercontent.com SHA256SUMS
+    ```

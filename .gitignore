@@ -1,0 +1,9 @@
+/bin/
+/dist/
+/vault-plugin-secrets-harbor
+*.test
+*.out
+coverage.*
+.env
+.DS_Store
+/test/integration/.harbor/

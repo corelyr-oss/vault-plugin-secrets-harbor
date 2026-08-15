@@ -1,0 +1,36 @@
+version: "2"
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+    - gosec
+    - errorlint
+    - bodyclose
+    - noctx
+    - unconvert
+    - unparam
+  settings:
+    gosec:
+      excludes:
+        - G404 # math/rand is not used for secrets; crypto/rand is used explicitly where it matters
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx, bodyclose, unparam, errcheck]
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/corelyr-oss/vault-plugin-secrets-harbor
