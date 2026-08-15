@@ -33,21 +33,19 @@ sed -e "s|__HOSTNAME__|$HARBOR_HOSTNAME|" \
 echo ">> preparing harbor config"
 ( cd "$INSTALLER" && ./prepare >/dev/null )
 
-# On Linux the prepare container writes its output as root; make it ours so the
-# compose file can be post-processed (CI runners have passwordless sudo).
-if [ ! -w "$INSTALLER/docker-compose.yml" ]; then
-  sudo chown -R "$(id -u):$(id -g)" "$INSTALLER" 2>/dev/null || sudo chmod -R u+rw "$INSTALLER"
-fi
-
 # Harbor's compose sends every container's logs to its rsyslog container via
 # the "syslog" log driver, which some Docker runtimes (e.g. Docker Desktop)
 # reject. Strip the logging blocks so the default json-file driver is used and
-# `docker compose logs` works for debugging.
-python3 - "$INSTALLER/docker-compose.yml" <<'PY'
+# `docker compose logs` works for debugging. On Linux the prepare container
+# writes the file as root (do NOT chown the rest of the tree: prepare sets the
+# ownership Harbor's containers need), so replace it via sudo when necessary.
+COMPOSE="$INSTALLER/docker-compose.yml"
+TMP_COMPOSE="$(mktemp)"
+python3 - "$COMPOSE" "$TMP_COMPOSE" <<'PY'
 import re, sys
-path = sys.argv[1]
+src, dst = sys.argv[1], sys.argv[2]
 out, skip_indent = [], None
-for line in open(path):
+for line in open(src):
     indent = len(line) - len(line.lstrip(" "))
     if skip_indent is not None:
         if line.strip() == "" or indent > skip_indent:
@@ -57,8 +55,14 @@ for line in open(path):
         skip_indent = indent
         continue
     out.append(line)
-open(path, "w").write("".join(out))
+open(dst, "w").write("".join(out))
 PY
+if [ -w "$COMPOSE" ]; then
+  cp "$TMP_COMPOSE" "$COMPOSE"
+else
+  sudo cp "$TMP_COMPOSE" "$COMPOSE"
+fi
+rm -f "$TMP_COMPOSE"
 
 echo ">> starting harbor"
 START=$(date +%s)
