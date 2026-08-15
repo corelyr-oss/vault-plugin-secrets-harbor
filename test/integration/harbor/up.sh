@@ -33,6 +33,12 @@ sed -e "s|__HOSTNAME__|$HARBOR_HOSTNAME|" \
 echo ">> preparing harbor config"
 ( cd "$INSTALLER" && ./prepare >/dev/null )
 
+# On Linux the prepare container writes its output as root; make it ours so the
+# compose file can be post-processed (CI runners have passwordless sudo).
+if [ ! -w "$INSTALLER/docker-compose.yml" ]; then
+  sudo chown -R "$(id -u):$(id -g)" "$INSTALLER" 2>/dev/null || sudo chmod -R u+rw "$INSTALLER"
+fi
+
 # Harbor's compose sends every container's logs to its rsyslog container via
 # the "syslog" log driver, which some Docker runtimes (e.g. Docker Desktop)
 # reject. Strip the logging blocks so the default json-file driver is used and

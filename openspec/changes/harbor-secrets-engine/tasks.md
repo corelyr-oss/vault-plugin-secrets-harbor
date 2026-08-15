@@ -1,6 +1,6 @@
 ## 1. Project bootstrap
 
-- [ ] 1.1 Rename local repository directory to `vault-plugin-secrets-harbor`; create the GitHub repo `corelyr-oss/vault-plugin-secrets-harbor` (public, MIT license) and push `main`
+- [x] 1.1 Rename local repository directory to `vault-plugin-secrets-harbor`; create the GitHub repo `corelyr-oss/vault-plugin-secrets-harbor` (public, MIT license) and push `main`
 - [x] 1.2 `go mod init github.com/corelyr-oss/vault-plugin-secrets-harbor` on Go 1.25; add `hashicorp/vault/sdk` (latest v0.25.x), `hashicorp/go-hclog`, `stretchr/testify`
 - [x] 1.3 Add `.golangci.yml`, `Makefile` (build/test/lint/integration/dev targets), `.gitignore`, `LICENSE`, initial README skeleton, `CODEOWNERS`, Dependabot config for gomod + github-actions
 - [x] 1.4 `cmd/vault-plugin-secrets-harbor/main.go`: `plugin.ServeMultiplex` with TLS provider, version from ldflags, `-version` flag printing the version
