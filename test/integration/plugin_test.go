@@ -210,10 +210,13 @@ func TestCreds_RobotMode(t *testing.T) {
 	name, secret := issuerRobot(t, project)
 	m.mustWrite("config", map[string]any{"url": harborURL, "username": name, "password": secret, "auth_type": "robot"})
 
-	// role broader than the issuer → Harbor scope error passed through
+	// role broader than the issuer → Harbor's 403 DENIED passed through
+	// (message is "permission scope is invalid…" on 2.15, plain "denied" on 2.12)
 	m.mustWrite("roles/push", map[string]any{"level": "project", "permissions": mustJSON(pushPullPerms(project))})
 	_, err := m.read("creds/push")
-	require.ErrorContains(t, err, "permission scope is invalid")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "harbor rejected robot creation")
+	require.Contains(t, err.Error(), "403 DENIED")
 
 	// role within scope
 	m.mustWrite("roles/pull", map[string]any{"level": "project", "permissions": mustJSON(pullPerms(project)), "ttl": "1h", "max_ttl": "2h"})

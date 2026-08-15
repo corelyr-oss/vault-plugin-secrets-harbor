@@ -84,4 +84,4 @@ When `auth_type=robot`, the engine SHALL surface Harbor's permission-scope error
 
 #### Scenario: Role broader than issuer robot
 - **WHEN** a role requests permissions the issuer robot does not hold and a client reads `creds/<role>`
-- **THEN** the engine returns an error containing Harbor's scope message ("permission scope is invalid…") and no robot is created
+- **THEN** the engine returns an error containing Harbor's `403 DENIED` response verbatim (e.g. "permission scope is invalid…" on Harbor 2.15, "denied" on 2.12) and no robot is created
