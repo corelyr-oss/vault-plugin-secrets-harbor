@@ -64,6 +64,12 @@ else
 fi
 rm -f "$TMP_COMPOSE"
 
+# compose reads env_file entries client-side; prepare creates them root:0600
+# on Linux. Make the generated config readable without changing ownership.
+if [ ! -r "$INSTALLER/common/config/core/env" ]; then
+  sudo chmod -R a+rX "$INSTALLER/common"
+fi
+
 echo ">> starting harbor"
 START=$(date +%s)
 if ! ( cd "$INSTALLER" && docker compose up -d --quiet-pull ); then
