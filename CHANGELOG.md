@@ -7,6 +7,12 @@ from conventional commits by goreleaser.
 
 ## [Unreleased]
 
+### Added
+- GitHub Action (`action/`, released as `action/vX.Y.Z`) that authenticates to
+  Vault with GitHub OIDC or a supplied token, issues Harbor robot credentials,
+  runs `docker login`, and revokes the lease — deleting the robot — when the job
+  ends.
+
 ## [0.1.0] - 2026-08-16
 
 ### Added

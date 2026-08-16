@@ -5,6 +5,13 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    paths-ignore:
+      - 'action/**'
+      - 'test/e2e/**'
+      - 'openspec/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/action-ci.yml'
 
 permissions:
   contents: read

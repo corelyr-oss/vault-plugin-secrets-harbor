@@ -38,27 +38,27 @@
 
 ## 6. End-to-end CI
 
-- [ ] 6.1 Workflow job (`permissions: id-token: write`) that starts Harbor via `test/integration/harbor/up.sh`, seeds a project and an image, and starts a Vault dev server with the built plugin registered
-- [ ] 6.2 Configure the engine (`config`, `roles/ci-pull`) and enable the JWT auth method against `https://token.actions.githubusercontent.com` with a role bound to this repository and a policy granting `read` on `<mount>/creds/*` and `update` on `sys/leases/revoke`
-- [ ] 6.3 Use the action from the working tree (`uses: ./action`), then pull the seeded image in a later step to prove the login works
-- [ ] 6.4 Assert cleanup: a follow-up job (or a step reading Harbor's API after a nested job) verifies the robot no longer exists and the issued credential is rejected
-- [ ] 6.5 Fork-safe fallback path exercising `vault-token` instead of OIDC, and a documented note in CI about which cells fork PRs skip
+- [x] 6.1 Workflow job (`permissions: id-token: write`) that starts Harbor via `test/integration/harbor/up.sh`, seeds a project and an image, and starts a Vault dev server with the built plugin registered
+- [x] 6.2 Configure the engine (`config`, `roles/ci-pull`) and enable the JWT auth method against `https://token.actions.githubusercontent.com` with a role bound to this repository and a policy granting `read` on `<mount>/creds/*` and `update` on `sys/leases/revoke`
+- [x] 6.3 Use the action from the working tree (`uses: ./action`), then pull the seeded image in a later step to prove the login works
+- [x] 6.4 Assert cleanup: a follow-up job (or a step reading Harbor's API after a nested job) verifies the robot no longer exists and the issued credential is rejected
+- [x] 6.5 Fork-safe fallback path exercising `vault-token` instead of OIDC, and a documented note in CI about which cells fork PRs skip
 
 ## 7. Build integrity and repository CI
 
-- [ ] 7.1 CI job: `npm ci`, lint, unit tests, `npm run build`, then fail if `git diff --exit-code action/dist` shows drift, with a message naming the regeneration command
-- [ ] 7.2 Add the action's paths to the existing CI workflow triggers and keep the plugin matrix unaffected by action-only changes
-- [ ] 7.3 Extend Dependabot to the `action/` npm ecosystem
+- [x] 7.1 CI job: `npm ci`, lint, unit tests, `npm run build`, then fail if `git diff --exit-code action/dist` shows drift, with a message naming the regeneration command
+- [x] 7.2 Add the action's paths to the existing CI workflow triggers and keep the plugin matrix unaffected by action-only changes
+- [x] 7.3 Extend Dependabot to the `action/` npm ecosystem
 
 ## 8. Release
 
-- [ ] 8.1 `action/v*`-triggered release workflow: verify the bundle matches sources, run the end-to-end job, create the GitHub release with the tested matrix in the notes
-- [ ] 8.2 Move the `action/vX` major tag as part of the release workflow, and confirm plugin tags are untouched
+- [x] 8.1 `action/v*`-triggered release workflow: verify the bundle matches sources, run the end-to-end job, create the GitHub release with the tested matrix in the notes
+- [x] 8.2 Move the `action/vX` major tag as part of the release workflow, and confirm plugin tags are untouched
 - [ ] 8.3 Tag `action/v0.1.0` once the end-to-end job is green
 
 ## 9. Documentation
 
-- [ ] 9.1 `action/README.md`: minimal example, full input/output tables, cleanup behaviour, `login: false` usage with other tools (helm/oras/skopeo)
-- [ ] 9.2 Vault prerequisites: JWT auth method for GitHub OIDC, role bound to the repository, policy for `creds` read and `sys/leases/revoke` update, audience guidance
-- [ ] 9.3 Root README section linking to the action, stating the `owner/repo/action@action/vX` reference form and that no Marketplace listing exists with this layout
-- [ ] 9.4 Note the tested runner/Vault/OpenBao/Harbor matrix in `docs/compatibility.md`
+- [x] 9.1 `action/README.md`: minimal example, full input/output tables, cleanup behaviour, `login: false` usage with other tools (helm/oras/skopeo)
+- [x] 9.2 Vault prerequisites: JWT auth method for GitHub OIDC, role bound to the repository, policy for `creds` read and `sys/leases/revoke` update, audience guidance
+- [x] 9.3 Root README section linking to the action, stating the `owner/repo/action@action/vX` reference form and that no Marketplace listing exists with this layout
+- [x] 9.4 Note the tested runner/Vault/OpenBao/Harbor matrix in `docs/compatibility.md`
