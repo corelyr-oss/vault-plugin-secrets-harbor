@@ -79,7 +79,9 @@ jobs:
 
       - name: Build the plugin and the action bundle
         run: |
-          make build
+          # An explicit semver: a PR checkout has no reachable tag, and Vault
+          # refuses to register a plugin whose version is not semver.
+          make build VERSION=v0.0.0-e2e
           npm ci --prefix action
           npm run build --prefix action
 
@@ -239,7 +241,9 @@ jobs:
 
       - name: Build the plugin and the action bundle
         run: |
-          make build
+          # An explicit semver: a PR checkout has no reachable tag, and Vault
+          # refuses to register a plugin whose version is not semver.
+          make build VERSION=v0.0.0-e2e
           npm ci --prefix action
           npm run build --prefix action
 
