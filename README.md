@@ -225,6 +225,31 @@ spec:
           text: '{{ printf "{\"auths\":{\"harbor.example.com\":{\"auth\":\"%s\"}}}" (get .Secrets "auth") }}'
 ```
 
+## GitHub Actions
+
+A companion action in [`action/`](action/README.md) turns the whole flow into one
+step: GitHub OIDC → Vault → Harbor robot → `docker login`, with the lease revoked
+(and the robot deleted) when the job ends.
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+steps:
+  - uses: corelyr-oss/vault-plugin-secrets-harbor/action@action/v0
+    with:
+      registry: harbor.example.com
+      role: ci-pull
+      vault-url: https://vault.example.com
+  - run: docker pull harbor.example.com/library/app:latest
+```
+
+The action is versioned independently of the plugin under `action/vX.Y.Z` tags
+(with a moving `action/vX`). It is referenced by path and is not listed in the
+GitHub Marketplace, which requires an action at a repository root. See
+[action/README.md](action/README.md) for inputs, outputs and the Vault
+prerequisites.
+
 ## Compatibility
 
 | Component | Supported | Tested in CI |
@@ -246,6 +271,7 @@ See [docs/compatibility.md](docs/compatibility.md) for details and per-release n
 
 ```sh
 make test          # unit tests (fake Harbor, no Docker)
+make action-test   # the GitHub Action's unit tests and bundle
 make lint
 make build         # bin/plugins/vault-plugin-secrets-harbor
 make dev-harbor    # in-memory fake Harbor on :8089 (admin / Harbor12345)

@@ -1,0 +1,107 @@
+name: Action release
+
+on:
+  push:
+    tags: ['action/v*']
+
+permissions:
+  contents: read
+
+jobs:
+  # Re-run the full action suite (bundle drift check + both end-to-end jobs)
+  # against the tagged commit; a release is never published on unverified code.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/action-ci.yml
+    permissions:
+      contents: read
+      id-token: write
+
+  release:
+    name: Publish release and move the major tag
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive versions
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"                      # action/v1.2.3
+          VERSION="${TAG#action/}"                      # v1.2.3
+          MAJOR="action/${VERSION%%.*}"                 # action/v1
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "major=$MAJOR"
+          } >> "$GITHUB_OUTPUT"
+          case "$VERSION" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::tag $TAG does not look like action/vX.Y.Z"; exit 1 ;;
+          esac
+
+      - name: The tagged commit must contain a current bundle
+        run: |
+          set -euo pipefail
+          npm ci --prefix action
+          npm run build --prefix action
+          if ! git diff --exit-code --stat -- action/dist; then
+            echo "::error::action/dist in tag ${{ steps.version.outputs.tag }} does not match its sources"
+            exit 1
+          fi
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          MAJOR: ${{ steps.version.outputs.major }}
+        run: |
+          set -euo pipefail
+          PRERELEASE=""
+          case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+          cat > notes.md <<NOTES
+          ## Harbor login action $VERSION
+
+          Logs in to Harbor with a short-lived robot account issued by the
+          [Harbor secrets engine](https://github.com/${GITHUB_REPOSITORY}), and revokes it when the job ends.
+
+          \`\`\`yaml
+          - uses: ${GITHUB_REPOSITORY}/action@$MAJOR
+            with:
+              registry: harbor.example.com
+              role: ci-pull
+              vault-url: https://vault.example.com
+          \`\`\`
+
+          Requires \`permissions: id-token: write\` for the OIDC path.
+          See [action/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/$TAG/action/README.md).
+
+          ### Verified in CI for this release
+          | Component | Version |
+          |---|---|
+          | Runner | ubuntu-latest (GitHub-hosted) |
+          | Node runtime | node24 |
+          | Vault | 2.0.4 |
+          | Harbor | 2.15.2 |
+          | Auth paths | GitHub OIDC (JWT) and supplied token |
+          NOTES
+          gh release create "$TAG" --title "Harbor login action $VERSION" --notes-file notes.md $PRERELEASE
+
+      - name: Move the major tag
+        env:
+          MAJOR: ${{ steps.version.outputs.major }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Plugin tags (vX.Y.Z) are never touched here.
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -f -a "$MAJOR" -m "Harbor login action $MAJOR -> $TAG"
+          git push -f origin "refs/tags/$MAJOR"
+          echo "$MAJOR now points at $(git rev-parse --short "$TAG")"

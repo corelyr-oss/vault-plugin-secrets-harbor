@@ -20,6 +20,28 @@ Bump the pinned versions in the workflow when new releases appear; the
 `install-vault.sh` script downloads any Vault (`releases.hashicorp.com`) or
 OpenBao (GitHub releases) version.
 
+## GitHub Action matrix (`.github/workflows/action-ci.yml`)
+
+The action in `action/` is tested end to end against a real Harbor and a real
+Vault on every pull request and before every `action/v*` release.
+
+| Cell | What it proves |
+|---|---|
+| `e2e` | GitHub OIDC → Vault JWT auth → credentials → `docker login` → `docker pull`, then the post step deletes the robot |
+| `e2e-token-auth` | The same flow with a supplied Vault token; runs for pull requests from forks, which cannot use OIDC |
+
+| Component | Tested |
+|---|---|
+| Runner | `ubuntu-latest` (GitHub-hosted) |
+| Action runtime | `node24` |
+| Vault | 2.0.4 |
+| Harbor | 2.15.2 |
+
+Cleanup is asserted by a test-only action (`test/e2e/assert-cleanup`) whose post
+step runs after the login action's post step, because post steps run in reverse
+order. It fails the job if the robot still exists or if the revoked credential
+can still pull.
+
 ## Requirements per feature
 
 | Feature | Requirement |
@@ -30,6 +52,8 @@ OpenBao (GitHub releases) version.
 | `config/rotate-root` | user mode only — Harbor has no `robot:update` permission |
 | Plugin version reporting / `secrets tune -plugin-version` | Vault ≥ 1.12 |
 | Containerized plugin runtime (OCI image) | Vault ≥ 1.15 on Linux with gVisor |
+| GitHub Action, OIDC login | Vault JWT auth method configured for GitHub's OIDC issuer; job permission `id-token: write` |
+| GitHub Action, automatic revocation | Policy granting `update` on `sys/leases/revoke` |
 
 ## Verified Harbor API semantics (2.15.2)
 

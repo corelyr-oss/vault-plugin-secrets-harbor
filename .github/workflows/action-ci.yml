@@ -1,0 +1,336 @@
+name: Action CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-test:
+    name: Build, test & bundle check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: action/package-lock.json
+      - run: npm ci
+        working-directory: action
+      - run: npm run format:check
+        working-directory: action
+      - run: npm run lint
+        working-directory: action
+      - run: npm run typecheck
+        working-directory: action
+      - run: npm run test
+        working-directory: action
+      - name: Rebuild the bundle
+        run: npm run build
+        working-directory: action
+      - name: Fail if the committed bundle is out of date
+        run: |
+          if ! git diff --exit-code --stat -- action/dist; then
+            echo "::error::action/dist is out of date. Run 'npm run build' in action/ and commit the result."
+            exit 1
+          fi
+          echo "committed bundle matches the sources"
+
+  e2e:
+    name: End to end (real Harbor + Vault)
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # required for the OIDC path
+    env:
+      HARBOR_URL: http://127.0.0.1:8090
+      HARBOR_REGISTRY: localhost:8090
+      HARBOR_PROJECT: action-e2e
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: root
+      IMAGE_TAG: v1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: action/package-lock.json
+
+      - name: Build the plugin and the action bundle
+        run: |
+          # An explicit semver: a PR checkout has no reachable tag, and Vault
+          # refuses to register a plugin whose version is not semver.
+          make build VERSION=v0.0.0-e2e
+          npm ci --prefix action
+          npm run build --prefix action
+
+      - name: Install Vault
+        run: |
+          BIN=$(test/integration/scripts/install-vault.sh vault 2.0.4 "$RUNNER_TEMP/bin")
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$BIN" version
+
+      - name: Allow plain-HTTP access to the local registry
+        run: |
+          sudo mkdir -p /etc/docker
+          echo '{"insecure-registries":["localhost:8090","127.0.0.1:8090"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Start Harbor
+        run: test/integration/harbor/up.sh
+
+      - name: Seed a project and an image
+        id: seed
+        run: |
+          set -euo pipefail
+          curl -fsS -u admin:Harbor12345 -X POST "$HARBOR_URL/api/v2.0/projects" \
+            -H 'Content-Type: application/json' \
+            -d "{\"project_name\":\"$HARBOR_PROJECT\",\"public\":false}"
+          PROJECT_ID=$(curl -fsS -u admin:Harbor12345 "$HARBOR_URL/api/v2.0/projects/$HARBOR_PROJECT" | jq -r .project_id)
+          echo "project-id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+          printf 'FROM scratch\nCOPY README.md /README.md\n' > "$RUNNER_TEMP/Dockerfile"
+          docker login "$HARBOR_REGISTRY" -u admin -p Harbor12345
+          docker build -f "$RUNNER_TEMP/Dockerfile" -t "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG" .
+          docker push "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG"
+          docker logout "$HARBOR_REGISTRY"
+          docker rmi "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG"
+
+      - name: Start Vault with the plugin and configure it
+        run: |
+          set -euo pipefail
+          nohup vault server -dev -dev-root-token-id=root \
+            -dev-plugin-dir="$PWD/bin/plugins" -log-level=info > "$RUNNER_TEMP/vault.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -fs "$VAULT_ADDR/v1/sys/health" >/dev/null && break; sleep 1; done
+
+          SHA=$(sha256sum bin/plugins/vault-plugin-secrets-harbor | cut -d' ' -f1)
+          VERSION=$(bin/plugins/vault-plugin-secrets-harbor -version)
+          vault plugin register -sha256="$SHA" -version="$VERSION" secret vault-plugin-secrets-harbor
+          vault secrets enable -path=harbor vault-plugin-secrets-harbor
+          vault write harbor/config url="$HARBOR_URL" username=admin password=Harbor12345
+          vault write harbor/roles/ci-pull level=project ttl=10m max_ttl=1h \
+            permissions="[{\"kind\":\"project\",\"namespace\":\"$HARBOR_PROJECT\",\"access\":[{\"resource\":\"repository\",\"action\":\"pull\"}]}]"
+
+          vault policy write harbor-ci - <<'POLICY'
+          path "harbor/creds/ci-pull" { capabilities = ["read"] }
+          path "sys/leases/revoke"    { capabilities = ["update"] }
+          POLICY
+
+      - name: Configure JWT auth for GitHub OIDC
+        run: |
+          set -euo pipefail
+          vault auth enable jwt
+          vault write auth/jwt/config oidc_discovery_url=https://token.actions.githubusercontent.com
+          # bound_claims is a map, so the whole payload goes in as JSON on stdin;
+          # "bound_claims=@file" is rejected by the CLI for map fields.
+          jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg aud "${{ github.server_url }}/${{ github.repository_owner }}" \
+            '{
+              role_type: "jwt",
+              user_claim: "workflow_ref",
+              bound_audiences: [$aud],
+              bound_claims_type: "glob",
+              bound_claims: { repository: $repo },
+              token_policies: ["harbor-ci"],
+              token_ttl: "20m"
+            }' | vault write auth/jwt/role/ci-pull -
+          vault read auth/jwt/role/ci-pull
+
+      # Registered before the login action so that its post step runs AFTER the
+      # login action's post step (post steps run in reverse order).
+      - name: Arm the cleanup assertion
+        uses: ./test/e2e/assert-cleanup
+
+      - name: Log in to Harbor via Vault (the action under test)
+        id: harbor
+        uses: ./action
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          role: ci-pull
+          vault-url: ${{ env.VAULT_ADDR }}
+
+      - name: Outputs are populated
+        env:
+          USERNAME: ${{ steps.harbor.outputs.username }}
+          ROBOT_ID: ${{ steps.harbor.outputs.robot-id }}
+          EXPIRES_AT: ${{ steps.harbor.outputs.expires-at }}
+          LEASE_ID: ${{ steps.harbor.outputs.lease-id }}
+        run: |
+          set -euo pipefail
+          echo "robot: $USERNAME (id $ROBOT_ID) expiring $EXPIRES_AT, lease $LEASE_ID"
+          case "$USERNAME" in
+            "robot\$$HARBOR_PROJECT+"*) ;;
+            *) echo "::error::unexpected robot name: $USERNAME"; exit 1 ;;
+          esac
+          test -n "$ROBOT_ID" && test -n "$LEASE_ID"
+
+      - name: Pull the image with the issued credentials
+        run: docker pull "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG"
+
+      - name: Record what the cleanup assertion must verify
+        if: always() && steps.harbor.outcome == 'success'
+        env:
+          USERNAME: ${{ steps.harbor.outputs.username }}
+          SECRET: ${{ steps.harbor.outputs.secret }}
+        run: |
+          jq -n \
+            --arg harborUrl "$HARBOR_URL" \
+            --arg adminUser admin \
+            --arg adminPassword Harbor12345 \
+            --arg projectId "${{ steps.seed.outputs.project-id }}" \
+            --arg username "$USERNAME" \
+            --arg secret "$SECRET" \
+            --arg repository "$HARBOR_PROJECT/app" \
+            --arg tag "$IMAGE_TAG" \
+            '{harborUrl:$harborUrl, adminUser:$adminUser, adminPassword:$adminPassword,
+              projectId:($projectId|tonumber), username:$username, secret:$secret,
+              repository:$repository, tag:$tag}' > "$RUNNER_TEMP/e2e-expect.json"
+
+      # Harbor and Vault are deliberately left running: the post steps of the
+      # login action and of assert-cleanup need them after the last step.
+      - name: Harbor logs on failure
+        if: failure()
+        run: |
+          cd test/integration/.harbor/harbor && docker compose logs --tail=100 core || true
+          tail -50 "$RUNNER_TEMP/vault.log" || true
+
+  e2e-token-auth:
+    name: End to end (token auth, fork-safe)
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HARBOR_URL: http://127.0.0.1:8090
+      HARBOR_REGISTRY: localhost:8090
+      HARBOR_PROJECT: action-e2e-token
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: root
+      IMAGE_TAG: v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: action/package-lock.json
+
+      - name: Build the plugin and the action bundle
+        run: |
+          # An explicit semver: a PR checkout has no reachable tag, and Vault
+          # refuses to register a plugin whose version is not semver.
+          make build VERSION=v0.0.0-e2e
+          npm ci --prefix action
+          npm run build --prefix action
+
+      - name: Install Vault
+        run: |
+          test/integration/scripts/install-vault.sh vault 2.0.4 "$RUNNER_TEMP/bin" >/dev/null
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Allow plain-HTTP access to the local registry
+        run: |
+          sudo mkdir -p /etc/docker
+          echo '{"insecure-registries":["localhost:8090","127.0.0.1:8090"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Start Harbor
+        run: test/integration/harbor/up.sh
+
+      - name: Seed a project and an image
+        id: seed
+        run: |
+          set -euo pipefail
+          curl -fsS -u admin:Harbor12345 -X POST "$HARBOR_URL/api/v2.0/projects" \
+            -H 'Content-Type: application/json' \
+            -d "{\"project_name\":\"$HARBOR_PROJECT\",\"public\":false}"
+          PROJECT_ID=$(curl -fsS -u admin:Harbor12345 "$HARBOR_URL/api/v2.0/projects/$HARBOR_PROJECT" | jq -r .project_id)
+          echo "project-id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+          printf 'FROM scratch\nCOPY README.md /README.md\n' > "$RUNNER_TEMP/Dockerfile"
+          docker login "$HARBOR_REGISTRY" -u admin -p Harbor12345
+          docker build -f "$RUNNER_TEMP/Dockerfile" -t "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG" .
+          docker push "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG"
+          docker logout "$HARBOR_REGISTRY"
+          docker rmi "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG"
+
+      - name: Start Vault with the plugin, configure it and mint a scoped token
+        id: vault
+        run: |
+          set -euo pipefail
+          nohup vault server -dev -dev-root-token-id=root \
+            -dev-plugin-dir="$PWD/bin/plugins" -log-level=info > "$RUNNER_TEMP/vault.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -fs "$VAULT_ADDR/v1/sys/health" >/dev/null && break; sleep 1; done
+          SHA=$(sha256sum bin/plugins/vault-plugin-secrets-harbor | cut -d' ' -f1)
+          VERSION=$(bin/plugins/vault-plugin-secrets-harbor -version)
+          vault plugin register -sha256="$SHA" -version="$VERSION" secret vault-plugin-secrets-harbor
+          vault secrets enable -path=harbor vault-plugin-secrets-harbor
+          vault write harbor/config url="$HARBOR_URL" username=admin password=Harbor12345
+          vault write harbor/roles/ci-pull level=project ttl=10m max_ttl=1h \
+            permissions="[{\"kind\":\"project\",\"namespace\":\"$HARBOR_PROJECT\",\"access\":[{\"resource\":\"repository\",\"action\":\"pull\"}]}]"
+          vault policy write harbor-ci - <<'POLICY'
+          path "harbor/creds/ci-pull" { capabilities = ["read"] }
+          path "sys/leases/revoke"    { capabilities = ["update"] }
+          POLICY
+          TOKEN=$(vault token create -policy=harbor-ci -ttl=30m -field=token)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Arm the cleanup assertion
+        uses: ./test/e2e/assert-cleanup
+
+      - name: Log in to Harbor via Vault (token auth, no OIDC)
+        id: harbor
+        uses: ./action
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          role: ci-pull
+          vault-url: ${{ env.VAULT_ADDR }}
+          vault-token: ${{ steps.vault.outputs.token }}
+
+      - name: Pull the image with the issued credentials
+        run: docker pull "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$IMAGE_TAG"
+
+      - name: Record what the cleanup assertion must verify
+        if: always() && steps.harbor.outcome == 'success'
+        env:
+          USERNAME: ${{ steps.harbor.outputs.username }}
+          SECRET: ${{ steps.harbor.outputs.secret }}
+        run: |
+          jq -n \
+            --arg harborUrl "$HARBOR_URL" --arg adminUser admin --arg adminPassword Harbor12345 \
+            --arg projectId "${{ steps.seed.outputs.project-id }}" \
+            --arg username "$USERNAME" --arg secret "$SECRET" \
+            --arg repository "$HARBOR_PROJECT/app" --arg tag "$IMAGE_TAG" \
+            '{harborUrl:$harborUrl, adminUser:$adminUser, adminPassword:$adminPassword,
+              projectId:($projectId|tonumber), username:$username, secret:$secret,
+              repository:$repository, tag:$tag}' > "$RUNNER_TEMP/e2e-expect.json"
+
+      - name: Harbor logs on failure
+        if: failure()
+        run: |
+          cd test/integration/.harbor/harbor && docker compose logs --tail=100 core || true
+          tail -50 "$RUNNER_TEMP/vault.log" || true

@@ -6,7 +6,7 @@ GOFLAGS  := -trimpath
 PLUGIN_DIR ?= $(CURDIR)/bin/plugins
 TOOLS_DIR  := $(CURDIR)/bin/tools
 
-.PHONY: all build build-tools test lint integration dev dev-harbor clean fmt tidy
+.PHONY: all build build-tools test lint integration dev dev-harbor clean fmt tidy action-test action-build
 
 all: lint test build
 
@@ -40,6 +40,13 @@ dev: build
 # Start the in-memory fake Harbor on 127.0.0.1:8089 (admin / Harbor12345).
 dev-harbor: build-tools
 	$(TOOLS_DIR)/fakeharbor -addr 127.0.0.1:8089
+
+# The GitHub Action lives in action/ and has its own toolchain.
+action-test:
+	cd action && npm ci && npm run all
+
+action-build:
+	cd action && npm ci && npm run build
 
 clean:
 	rm -rf bin dist

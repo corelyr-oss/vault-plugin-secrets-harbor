@@ -1,0 +1,10 @@
+name: 'Assert Harbor credential cleanup'
+description: >-
+  Test-only helper. Its post step runs after the harbor-login action's post step
+  (post steps run in reverse order), so it can assert that the Vault lease was
+  revoked: the Harbor robot must be gone and its credential must no longer work.
+runs:
+  using: 'node24'
+  main: 'index.js'
+  post: 'index.js'
+  post-if: 'always()'
