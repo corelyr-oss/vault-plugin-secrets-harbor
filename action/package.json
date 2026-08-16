@@ -1,0 +1,35 @@
+{
+  "name": "vault-plugin-secrets-harbor-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub Action that logs in to Harbor with a short-lived robot account issued by the Vault Harbor secrets engine",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --license licenses.txt",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\" \"__tests__/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"__tests__/**/*.ts\"",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "all": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@actions/core": "1.11.1",
+    "@actions/exec": "1.1.1",
+    "undici": "7.16.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.0",
+    "@types/node": "24.9.2",
+    "@vercel/ncc": "0.38.4",
+    "eslint": "9.39.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.2",
+    "vitest": "3.2.4"
+  }
+}

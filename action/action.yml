@@ -1,0 +1,85 @@
+name: 'Harbor login via Vault'
+description: >-
+  Log in to a Harbor registry with a short-lived robot account issued by the
+  Vault Harbor secrets engine, and revoke it when the job finishes.
+author: 'Corelyr'
+branding:
+  icon: 'lock'
+  color: 'blue'
+
+inputs:
+  registry:
+    description: 'Harbor registry host to log in to, optionally host:port (e.g. harbor.example.com).'
+    required: true
+  role:
+    description: 'Secrets engine role to read, as <mount>/creds/<role>.'
+    required: true
+  vault-url:
+    description: 'Base URL of Vault or OpenBao. Defaults to the VAULT_ADDR environment variable.'
+    required: false
+  mount:
+    description: 'Mount path of the Harbor secrets engine.'
+    required: false
+    default: 'harbor'
+  vault-token:
+    description: >-
+      Existing Vault token to use instead of GitHub OIDC. Defaults to the
+      VAULT_TOKEN environment variable. A token supplied this way is never revoked
+      by this action.
+    required: false
+  auth-mount:
+    description: 'Mount path of the JWT auth method used for GitHub OIDC.'
+    required: false
+    default: 'jwt'
+  auth-role:
+    description: 'Vault JWT auth role name. Defaults to the value of "role".'
+    required: false
+  audience:
+    description: >-
+      Audience to request for the GitHub OIDC token. Leave unset to use the
+      repository default audience; it must match the Vault role bound_audiences.
+    required: false
+  namespace:
+    description: 'Vault Enterprise namespace (sent as X-Vault-Namespace).'
+    required: false
+  ca-cert:
+    description: 'PEM-encoded CA bundle used to verify the Vault TLS certificate.'
+    required: false
+  tls-skip-verify:
+    description: 'Skip verification of the Vault TLS certificate. Not recommended.'
+    required: false
+    default: 'false'
+  login:
+    description: 'Run docker login against the registry with the issued credentials.'
+    required: false
+    default: 'true'
+  revoke:
+    description: 'Revoke the credential lease when the job finishes, deleting the Harbor robot.'
+    required: false
+    default: 'true'
+  logout:
+    description: 'Run docker logout when the job finishes.'
+    required: false
+    default: 'true'
+
+outputs:
+  username:
+    description: 'Full Harbor robot account name (e.g. robot$library+vault-ci-1a2b3c4d).'
+  secret:
+    description: 'Robot account secret. Registered as a masked value.'
+  auth:
+    description: 'base64(username:secret), for a Docker config.json auths entry. Masked.'
+  registry:
+    description: 'Registry host the credentials belong to.'
+  robot-id:
+    description: 'Harbor robot account ID.'
+  expires-at:
+    description: 'Harbor-side expiry of the robot account (RFC 3339), or -1 if it never expires.'
+  lease-id:
+    description: 'Vault lease ID backing the credentials.'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
+  post: 'dist/index.js'
+  post-if: 'always()'
