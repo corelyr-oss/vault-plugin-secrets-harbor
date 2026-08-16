@@ -61,4 +61,4 @@
 - [x] 9.1 README: install (binary + OCI), quick start, config in user and robot mode with minimum Harbor permissions for each, role permission examples (pull-only CI, push CI, K8s pull secret via VSO), rotate-root, upgrade/`secrets tune -plugin-version`
 - [x] 9.2 `docs/compatibility.md`: tested Vault/OpenBao/Harbor matrix, updated by CI per release
 - [x] 9.3 `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md` (vulnerability reporting)
-- [ ] 9.4 Tag `v0.1.0` once the matrix is green
+- [x] 9.4 Tag `v0.1.0` once the matrix is green

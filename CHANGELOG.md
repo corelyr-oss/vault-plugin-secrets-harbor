@@ -7,6 +7,8 @@ from conventional commits by goreleaser.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-16
+
 ### Added
 - Harbor secrets engine: `config` (user and robot root-credential modes),
   `config/rotate-root` (user mode), `roles/<name>`, `creds/<name>` with
