@@ -69,7 +69,7 @@ func TestConfig_UserMode(t *testing.T) {
 func TestConfig_RobotMode(t *testing.T) {
 	m := vault.mount(t)
 	project, _ := newProject(t)
-	name, secret := issuerRobot(t, project)
+	name, secret := issuerRobot(t, project, "project")
 
 	_, err := m.write("config", map[string]any{"url": harborURL, "username": name, "password": "wrong", "auth_type": "robot"})
 	require.ErrorContains(t, err, "failed to verify connection")
@@ -203,11 +203,24 @@ func TestCreds_UserMode_FullLifecycle(t *testing.T) {
 }
 
 func TestCreds_RobotMode(t *testing.T) {
+	// A project-level issuer works on every supported Harbor; a system-level
+	// issuer (one issuer for many projects) needs Harbor >= 2.13, where the
+	// creator is taken from the security context instead of a per-project lookup.
+	t.Run("project-level-issuer", func(t *testing.T) { testCredsRobotMode(t, "project") })
+	t.Run("system-level-issuer", func(t *testing.T) {
+		if !harborAtLeast(t, 2, 13) {
+			t.Skip("system-level issuer robots need Harbor >= 2.13")
+		}
+		testCredsRobotMode(t, "system")
+	})
+}
+
+func testCredsRobotMode(t *testing.T, issuerLevel string) {
 	m := vault.mount(t)
 	project, projectID := newProject(t)
 	repo := fmtRepo(project, "hello")
 	pushTinyImage(t, adminUser, adminPass, repo, "v1")
-	name, secret := issuerRobot(t, project)
+	name, secret := issuerRobot(t, project, issuerLevel)
 	m.mustWrite("config", map[string]any{"url": harborURL, "username": name, "password": secret, "auth_type": "robot"})
 
 	// role broader than the issuer → Harbor's 403 DENIED passed through

@@ -5,7 +5,7 @@ Defines the Vault, OpenBao and Harbor versions the plugin supports and the autom
 ## ADDED Requirements
 
 ### Requirement: Supported version window
-The plugin SHALL support Vault ≥ 1.16 through the current 2.0.x line, OpenBao ≥ 2.x, and Harbor ≥ 2.12.1 (the first release allowing robot accounts to manage robots) with best-effort support for Harbor ≥ 2.2 in user mode. The README SHALL state the tested matrix for each release.
+The plugin SHALL support Vault ≥ 1.16 through the current 2.0.x line, OpenBao ≥ 2.x, and Harbor ≥ 2.12.1 (the first release allowing robot accounts to manage robots; system-level issuer robots need ≥ 2.13) with best-effort support for Harbor ≥ 2.2 in user mode. The README SHALL state the tested matrix for each release.
 
 #### Scenario: Version matrix documented
 - **WHEN** a user reads the release notes or README for a given plugin version

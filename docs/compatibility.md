@@ -25,7 +25,8 @@ OpenBao (GitHub releases) version.
 | Feature | Requirement |
 |---|---|
 | Dynamic robot accounts (user mode) | Harbor ≥ 2.2 (robot accounts v2) |
-| Robot-mode issuer (`auth_type=robot`) | Harbor ≥ 2.12.1 (robots may create robots within their own scope) |
+| Robot-mode issuer (`auth_type=robot`), project-level issuer | Harbor ≥ 2.12.1 (robots may create robots within their own scope; 2.12.x looks the creator up per project) |
+| Robot-mode issuer, system-level issuer serving several projects | Harbor ≥ 2.13 (creator taken from the security context) |
 | `config/rotate-root` | user mode only — Harbor has no `robot:update` permission |
 | Plugin version reporting / `secrets tune -plugin-version` | Vault ≥ 1.12 |
 | Containerized plugin runtime (OCI image) | Vault ≥ 1.15 on Linux with gVisor |
@@ -40,4 +41,4 @@ Documented here because the plugin depends on them:
 - Robot permission actions: `robot:{create,read,list,delete}` — no `update`.
 - `GET /robots` without `q=Level=project,ProjectID=<id>` lists system-level robots only; robot principals need the project filter.
 - `q=name=<x>` is an exact match, `q=name=~<x>` is fuzzy.
-- Robots created by a robot must have permissions ⊆ the creator's; Harbor answers `403 DENIED "permission scope is invalid…"` otherwise.
+- Robots created by a robot must have permissions ⊆ the creator's; Harbor answers `403 DENIED "permission scope is invalid…"` otherwise (2.12.x answers a bare `403 DENIED: denied`, and also when the creator is a system-level robot).

@@ -137,8 +137,13 @@ Reads of `config` never return secrets. Writing again keeps secret fields you om
 vault write -f harbor/config/rotate-root
 ```
 
-**`auth_type=robot`** — a Harbor robot account, so Vault never stores admin credentials (Harbor ≥ 2.12.1). Create a **system-level** robot in Harbor with, for each project you want to issue for, the project-scoped permissions
-`robot:create`, `robot:read`, `robot:list`, `robot:delete`, plus **every permission you intend to grant** to issued robots (Harbor requires an issued robot's permissions to be a subset of its creator's). Example issuer for project `library` (pull only):
+**`auth_type=robot`** — a Harbor robot account, so Vault never stores admin credentials (Harbor ≥ 2.12.1). The issuer robot needs, for each project you want to issue for, the project-scoped permissions
+`robot:create`, `robot:read`, `robot:list`, `robot:delete`, plus **every permission you intend to grant** to issued robots (Harbor requires an issued robot's permissions to be a subset of its creator's).
+
+- **Harbor ≥ 2.13**: a single **system-level** issuer robot with `kind=project` permissions can serve several projects.
+- **Harbor 2.12.x**: the issuer must be a **project-level** robot of the target project (Harbor looks the creator up per project) — use one issuer/mount per project.
+
+Example issuer for project `library` (pull only), system-level:
 
 ```json
 {"name":"vault-issuer","level":"system","duration":-1,"permissions":[
@@ -147,6 +152,8 @@ vault write -f harbor/config/rotate-root
     {"resource":"robot","action":"list"},{"resource":"robot","action":"delete"},
     {"resource":"repository","action":"pull"}]}]}
 ```
+
+(For a project-level issuer use `"level":"project"`; its login name is then `robot$library+vault-issuer`.)
 
 ```sh
 vault write harbor/config url=https://harbor.example.com \

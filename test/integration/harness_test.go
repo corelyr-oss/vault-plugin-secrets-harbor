@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -318,11 +319,33 @@ func pushPullPerms(project string) []map[string]any {
 		"access": []map[string]any{{"resource": "repository", "action": "pull"}, {"resource": "repository", "action": "push"}}}}
 }
 
-// issuerRobot creates a system-level robot able to manage robots in project.
-func issuerRobot(t *testing.T, project string) (name, secret string) {
+// harborVersion returns Harbor's version as (major, minor) from /systeminfo.
+func harborVersion(t *testing.T) (int, int) {
+	t.Helper()
+	var info struct {
+		Version string `json:"harbor_version"`
+	}
+	require.NoError(t, adminDo(http.MethodGet, "/systeminfo", nil, &info))
+	var major, minor int
+	_, err := fmt.Sscanf(strings.TrimPrefix(info.Version, "v"), "%d.%d", &major, &minor)
+	require.NoError(t, err, "parse harbor version %q", info.Version)
+	return major, minor
+}
+
+// harborAtLeast reports whether Harbor is >= major.minor.
+func harborAtLeast(t *testing.T, major, minor int) bool {
+	t.Helper()
+	ma, mi := harborVersion(t)
+	return ma > major || (ma == major && mi >= minor)
+}
+
+// issuerRobot creates a robot able to manage robots in project. level is
+// "project" (works on Harbor >= 2.12.1) or "system" (Harbor >= 2.13: the
+// creator lookup by security context accepts system-level issuers).
+func issuerRobot(t *testing.T, project, level string) (name, secret string) {
 	t.Helper()
 	created, err := admin.CreateRobot(context.Background(), harbor.RobotCreate{
-		Name: fmt.Sprintf("vault-issuer-%s", runID), Level: "system", Duration: -1,
+		Name: fmt.Sprintf("vault-issuer-%s-%s", level, runID), Level: level, Duration: -1,
 		Permissions: []harbor.RobotPermission{{Kind: "project", Namespace: project, Access: []harbor.Access{
 			{Resource: "robot", Action: "create"}, {Resource: "robot", Action: "read"},
 			{Resource: "robot", Action: "list"}, {Resource: "robot", Action: "delete"},

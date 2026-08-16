@@ -80,7 +80,7 @@ A write to `<mount>/config/rotate-root` on a user-mode configuration SHALL repla
 - **THEN** the engine returns an error indicating the backend is not configured
 
 ### Requirement: Robot-mode configuration is scope-aware
-When `auth_type=robot`, the engine SHALL surface Harbor's permission-scope errors verbatim when a role's permissions exceed the issuer robot's scope, so operators can tell the failure is a Harbor scope constraint rather than a Vault error.
+When `auth_type=robot`, the engine SHALL surface Harbor's permission-scope errors verbatim when a role's permissions exceed the issuer robot's scope, so operators can tell the failure is a Harbor scope constraint rather than a Vault error. The engine SHALL accept both project-level issuer robots (Harbor ≥ 2.12.1) and system-level issuer robots (Harbor ≥ 2.13); documentation SHALL state which Harbor versions support which.
 
 #### Scenario: Role broader than issuer robot
 - **WHEN** a role requests permissions the issuer robot does not hold and a client reads `creds/<role>`
