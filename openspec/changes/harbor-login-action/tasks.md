@@ -54,7 +54,7 @@
 
 - [x] 8.1 `action/v*`-triggered release workflow: verify the bundle matches sources, run the end-to-end job, create the GitHub release with the tested matrix in the notes
 - [x] 8.2 Move the `action/vX` major tag as part of the release workflow, and confirm plugin tags are untouched
-- [ ] 8.3 Tag `action/v0.1.0` once the end-to-end job is green
+- [x] 8.3 Tag `action/v0.1.0` once the end-to-end job is green
 
 ## 9. Documentation
 
