@@ -18,18 +18,18 @@
     "all": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
-    "@actions/core": "1.11.1",
-    "@actions/exec": "1.1.1",
-    "undici": "7.16.0"
+    "@actions/core": "3.0.1",
+    "@actions/exec": "3.0.0",
+    "undici": "8.10.0"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.0",
-    "@types/node": "24.9.2",
-    "@vercel/ncc": "0.38.4",
-    "eslint": "9.39.0",
-    "prettier": "3.6.2",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.46.2",
-    "vitest": "3.2.4"
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.2.0",
+    "@vercel/ncc": "0.45.0",
+    "eslint": "10.8.1",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.11"
   }
 }
