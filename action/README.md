@@ -101,8 +101,14 @@ Notes:
   `audience` input that is your organisation URL (`https://github.com/my-org`).
 - Tighten `bound_claims` further for production, e.g.
   `{ "repository": "my-org/my-repo", "ref": "refs/heads/main" }`.
-- `token_ttl` only bounds the Vault token; the Harbor credential's lifetime
-  comes from the role's `ttl`/`max_ttl` in the secrets engine.
+- **`token_ttl` bounds the credential too.** The lease the action obtains is a
+  child of this token, so when it expires Vault revokes the lease and the robot
+  is deleted in Harbor — mid-job if the job is still running, whatever the
+  engine role's `ttl`/`max_ttl` say. The credential's effective lifetime is the
+  lesser of the two. Size `token_ttl` to cover the longest job that uses the
+  credential; the `20m` above suits a short pull-and-build job, not an hour-long
+  matrix. This is independent of the action's post-step revocation, which runs
+  either way.
 
 ## Recipes
 
@@ -140,8 +146,14 @@ A token supplied this way is used as-is and is never revoked by the action.
 - **Cleanup never fails your job.** If Vault is unreachable in the post step the
   action warns and names the lease so you can revoke it by hand; the credential
   is still bounded by the lease TTL and by the robot's Harbor-side expiry.
-- **No renewal.** If a job can outlive the role's `ttl`, raise `ttl`/`max_ttl`
-  on the role rather than expecting the action to renew.
+- **No renewal.** If a job can outlive the credential, raise `ttl`/`max_ttl` on
+  the engine role *and* `token_ttl` on the auth role rather than expecting the
+  action to renew. Raising only the engine role leaves the parent token as the
+  binding limit.
+- **A mid-job `401` from Harbor is usually the Vault token, not Harbor.** If
+  `docker pull` succeeds early in a job and fails later, check `token_ttl` on the
+  auth role before looking at Harbor — see
+  [Troubleshooting](../README.md#troubleshooting) in the root README.
 - **A Docker CLI is required** for `login: true`; otherwise set `login: false`
   and use the outputs.
 - **The bundle in `dist/` is deliberately not minified** so that it can be read

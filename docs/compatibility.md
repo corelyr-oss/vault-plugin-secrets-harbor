@@ -66,3 +66,25 @@ Documented here because the plugin depends on them:
 - `GET /robots` without `q=Level=project,ProjectID=<id>` lists system-level robots only; robot principals need the project filter.
 - `q=name=<x>` is an exact match, `q=name=~<x>` is fuzzy.
 - Robots created by a robot must have permissions ⊆ the creator's; Harbor answers `403 DENIED "permission scope is invalid…"` otherwise (2.12.x answers a bare `403 DENIED: denied`, and also when the creator is a system-level robot).
+
+## Verified Vault semantics
+
+Vault-side behaviour the plugin depends on but does not control:
+
+- A lease cannot outlive the token that created it. When that token expires or is
+  revoked, Vault revokes every lease it created — so the engine's revocation runs
+  and the robot is deleted, whatever the role's `ttl` said. The effective
+  credential lifetime is `min(lease TTL, remaining parent-token TTL)`.
+- Service tokens (`token_type` `default`/`service`) are **not** clamped at
+  issuance: `lease_duration` reports the role's full TTL and the lease is revoked
+  early anyway. Batch tokens (`token_type=batch`) **are** clamped, so their
+  `lease_duration` is the truth. The service-token case is therefore the silent
+  one.
+- Consequence for consumers: Vault Secrets Operator and Vault Agent hold one
+  lease and renew it; a consumer that re-reads `creds/<role>` on an interval and
+  never renews (the External Secrets Operator `VaultDynamicSecret` generator)
+  must keep that interval below the effective lifetime above.
+- Diagnostic corollary of Harbor's day-granular `duration`: a robot that stops
+  being accepted within hours of issuance is being deleted by lease revocation,
+  never expiring. That separates Vault-side causes from Harbor-side ones without
+  needing Harbor admin access.
