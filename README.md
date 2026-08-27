@@ -205,6 +205,24 @@ Returns `username`, `secret`, `robot_id`, `expires_at` (Harbor-side expiry) and 
 - **Renew** (`vault lease renew`) extends the lease within `max_ttl`; the robot's Harbor expiry always covers it.
 - **Revoke** (`vault lease revoke`, or lease expiry) deletes the robot in Harbor.
 
+#### Credential lifetime
+
+A credential lives for the **lesser** of its lease TTL and the remaining lifetime
+of the Vault token that read `creds/<role>`. A Vault lease cannot outlive its
+parent token: when that token expires or is revoked, Vault revokes every lease it
+created, this engine deletes the robot, and Harbor rejects the credential from
+that moment — whatever the role's `ttl` said.
+
+For **service** tokens (`token_type` of `default` or `service`) Vault does not
+clamp the child lease at issuance, so `lease_duration` reports the role's full
+TTL and the lease is revoked early anyway. For **batch** tokens
+(`token_type=batch`) Vault does clamp at issuance, so `lease_duration` shows the
+true, shorter value.
+
+So size the TTL of whatever token your consumer authenticates with to cover the
+credential lifetime you actually want. If this bites you, see
+[Troubleshooting](#troubleshooting).
+
 ### Kubernetes pull secret with Vault Secrets Operator
 
 ```yaml
@@ -224,6 +242,25 @@ spec:
         .dockerconfigjson:
           text: '{{ printf "{\"auths\":{\"harbor.example.com\":{\"auth\":\"%s\"}}}" (get .Secrets "auth") }}'
 ```
+
+VSO holds one lease and renews it (`renewalPercent`), so the engine extends the
+robot's Harbor expiry in place and the credential survives for as long as the
+lease can be renewed within `max_ttl`. Vault Agent behaves the same way.
+
+**Non-renewing consumers need different arithmetic.** Some tools re-read
+`creds/<role>` on a fixed interval and never renew the lease they created — the
+External Secrets Operator's `VaultDynamicSecret` generator works this way. For
+those, keep the refresh interval comfortably below the *effective* credential
+lifetime described under [Credential lifetime](#credential-lifetime), not merely
+below the role's `ttl`. An interval equal to the lease TTL leaves no margin at
+all, and an interval longer than the parent token's TTL leaves the credential
+dead for most of every cycle.
+
+The counter-pressure is robot churn: a non-renewing consumer does not revoke the
+credential it replaces, so each refresh leaves the previous robot alive until its
+own lease ends. Halving the interval doubles the number of live robots. Raise the
+parent token's TTL to address the cause, and shorten the interval only for
+margin.
 
 ## GitHub Actions
 
@@ -266,6 +303,59 @@ See [docs/compatibility.md](docs/compatibility.md) for details and per-release n
 - Robots get a Harbor-side expiry (`duration`) derived from `max_ttl`, so even a lost lease cannot leave a robot alive indefinitely.
 - Prefer `auth_type=robot` or a project-admin user over the Harbor `admin` account.
 - Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+## Troubleshooting
+
+### Credentials stop working long before `lease_duration`
+
+**Symptom.** A credential works immediately after issuance, then starts failing
+with `401 Unauthorized` from Harbor well inside the `lease_duration` Vault
+reported. Because the failure surfaces at the registry rather than at Vault it
+rarely looks like an auth problem: `docker pull` and `helm` report it as a
+registry or chart error, Kubernetes reports `ImagePullBackOff`, and it is
+Harbor's token endpoint that answers:
+
+```
+GET "https://harbor.example.com/service/token?service=harbor-registry":
+response status code 401: Unauthorized
+```
+
+**Cause.** The lease is a child of the Vault token that read `creds/<role>`.
+When that token expires or is revoked, Vault revokes the lease, this engine
+deletes the robot, and every consumer of that credential fails until it fetches
+a new one. See [Credential lifetime](#credential-lifetime).
+
+**Check** the auth role your consumer logs in with:
+
+```sh
+vault read auth/<mount>/role/<role>   # token_ttl, token_max_ttl, token_type
+vault read sys/auth/<mount>/tune      # a role with token_ttl=0 inherits from here
+```
+
+A `token_ttl` shorter than the role's `ttl`, on a token nothing renews, is the
+bug. A `token_type` of
+`default` or `service` is what hides it — `lease_duration` still reports the
+role's full TTL.
+
+**Rule Harbor out first, in one step.** Harbor's robot `duration` is in **days**
+(see [docs/compatibility.md](docs/compatibility.md)), and so is its
+`robot_token_duration` system setting. No Harbor-side mechanism can end a
+robot's life within hours. A robot that dies in hours is therefore being
+*deleted*, not expiring — which means lease revocation, and rules out Harbor,
+its configuration, and the issuer credential in `config` together. If instead
+the robot is still present in Harbor and rejected anyway, that is a different
+problem: check its `disable` flag and its `permissions`.
+
+**Fix.** Raise the parent token's TTL above the credential lifetime you want, or
+use a consumer that renews (Vault Secrets Operator, Vault Agent). Shortening a
+consumer's refresh interval only masks the symptom, multiplies robot churn, and
+turns into a liability the moment the cause is fixed: a short interval against a
+lease that now really does last 24h accumulates live robots.
+
+**When it is not the cause.** A correct role, an untuned or generously tuned
+mount, and a healthy Harbor do not exclude any of the above. Every consumer-side
+signal will look fine — including operators that report a successful sync, which
+records only that a secret was written, never that Harbor still honours it.
 
 ## Development
 
